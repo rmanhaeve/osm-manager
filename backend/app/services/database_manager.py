@@ -1,3 +1,9 @@
+"""Service helpers for managed PostGIS databases and metadata catalog.
+
+Responsibilities covered here include database creation/deletion, extension
+management, statistics gathering, and caching/retrieval of geographic bounds.
+"""
+
 from __future__ import annotations
 
 import re
@@ -24,6 +30,8 @@ def _validate_identifier(name: str) -> str:
 
 
 class DatabaseManagerService:
+    """High-level orchestration helper for metadata and target databases."""
+
     def __init__(self, session: AsyncSession):
         self.session = session
         self.logger = LOGGER.bind(component="DatabaseManagerService")
@@ -35,11 +43,11 @@ class DatabaseManagerService:
     @staticmethod
     def _derive_dsn(base_name: str) -> str:
         url = make_url(str(settings.database.primary_dsn))
-        return str(url.set(database=base_name))
+        return url.set(database=base_name).render_as_string(hide_password=False)
 
     @staticmethod
     def _psycopg_conninfo(dsn: str) -> str:
-        return str(make_url(dsn).set(drivername="postgresql"))
+        return make_url(dsn).set(drivername="postgresql").render_as_string(hide_password=False)
 
     async def list_databases(self) -> list[ManagedDatabase]:
         result = await self.session.execute(select(ManagedDatabase).order_by(ManagedDatabase.name))
@@ -129,6 +137,16 @@ class DatabaseManagerService:
                 await cur.execute(f'CREATE DATABASE "{full_name}" TEMPLATE template0')
                 await cur.execute(f'GRANT ALL PRIVILEGES ON DATABASE "{full_name}" TO app_user')
 
+        admin_url = make_url(settings.database.admin_psycopg_dsn).set(database=full_name)
+        target_conninfo = admin_url.render_as_string(hide_password=False)
+        async with await AsyncConnection.connect(target_conninfo) as db_conn:
+            await db_conn.set_autocommit(True)
+            async with db_conn.cursor() as cur:
+                await cur.execute('CREATE EXTENSION IF NOT EXISTS postgis')
+                await cur.execute('CREATE EXTENSION IF NOT EXISTS hstore')
+                await cur.execute('GRANT USAGE ON SCHEMA public TO app_user')
+                await cur.execute('GRANT CREATE ON SCHEMA public TO app_user')
+
     async def _drop_database(self, full_name: str) -> None:
         admin_dsn = settings.database.admin_psycopg_dsn
         async with await AsyncConnection.connect(admin_dsn) as conn:
@@ -152,8 +170,9 @@ class DatabaseManagerService:
     async def get_database_stats(self, name: str) -> dict[str, int | None]:
         logical_name = _validate_identifier(name.lower())
         full_name = self._full_db_name(logical_name)
-        conninfo = settings.database.admin_psycopg_dsn
-        async with await AsyncConnection.connect(conninfo) as conn:
+        admin_url = make_url(settings.database.admin_psycopg_dsn).set(database=full_name)
+        target_conninfo = admin_url.render_as_string(hide_password=False)
+        async with await AsyncConnection.connect(target_conninfo) as conn:
             async with conn.cursor() as cur:
                 await cur.execute("SELECT pg_database_size(%s)", (full_name,))
                 size_row = await cur.fetchone()
@@ -170,4 +189,114 @@ class DatabaseManagerService:
         return {
             "size_bytes": int(size_row[0]) if size_row and size_row[0] is not None else None,
             "table_count": int(table_row[0]) if table_row and table_row[0] is not None else None,
+        }
+
+    async def get_database_bounds(self, name: str) -> dict[str, float] | None:
+        logical_name = _validate_identifier(name.lower())
+        record = await self.get_database(logical_name)
+        if not record:
+            raise ValueError("Database not found")
+
+        if (
+            record.min_lon is not None
+            and record.min_lat is not None
+            and record.max_lon is not None
+            and record.max_lat is not None
+        ):
+            return {
+                "min_lon": record.min_lon,
+                "min_lat": record.min_lat,
+                "max_lon": record.max_lon,
+                "max_lat": record.max_lat,
+            }
+
+        bounds = await self._calculate_bounds(self._full_db_name(logical_name))
+        if not bounds:
+            return None
+
+        record.min_lon = bounds["min_lon"]
+        record.min_lat = bounds["min_lat"]
+        record.max_lon = bounds["max_lon"]
+        record.max_lat = bounds["max_lat"]
+        self.session.add(record)
+        await self.session.commit()
+        return bounds
+
+    async def _calculate_bounds(self, full_name: str) -> dict[str, float] | None:
+        """Derive bounds for the target database using async psycopg connection."""
+        target_conninfo = self._psycopg_conninfo(self._derive_dsn(full_name))
+        tables = [
+            "planet_osm_polygon",
+            "planet_osm_line",
+            "planet_osm_point",
+            "planet_osm_roads",
+        ]
+
+        min_lon = float("inf")
+        min_lat = float("inf")
+        max_lon = float("-inf")
+        max_lat = float("-inf")
+        found = False
+
+        async with await AsyncConnection.connect(target_conninfo) as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT
+                        MIN(ST_X(ST_Transform(way, 4326))),
+                        MIN(ST_Y(ST_Transform(way, 4326))),
+                        MAX(ST_X(ST_Transform(way, 4326))),
+                        MAX(ST_Y(ST_Transform(way, 4326)))
+                    FROM planet_osm_point
+                    WHERE way IS NOT NULL
+                    """
+                )
+                point_row = await cur.fetchone()
+                if point_row and point_row[0] is not None:
+                    return {
+                        "min_lon": float(point_row[0]),
+                        "min_lat": float(point_row[1]),
+                        "max_lon": float(point_row[2]),
+                        "max_lat": float(point_row[3]),
+                    }
+
+                for table in tables:
+                    await cur.execute("SELECT to_regclass(%s)", (f"public.{table}",))
+                    exists_row = await cur.fetchone()
+                    if not exists_row or exists_row[0] is None:
+                        continue
+                    await cur.execute(
+                        f"""
+                        SELECT
+                            ST_XMin(extent)::double precision,
+                            ST_YMin(extent)::double precision,
+                            ST_XMax(extent)::double precision,
+                            ST_YMax(extent)::double precision
+                        FROM (
+                            SELECT ST_Extent(ST_Transform(way, 4326)) AS extent
+                            FROM {table}
+                            WHERE way IS NOT NULL
+                        ) AS bounds
+                        """
+                    )
+                    row = await cur.fetchone()
+                    if not row or row[0] is None:
+                        continue
+                    x_min, y_min, x_max, y_max = row
+                    if x_min is None or y_min is None or x_max is None or y_max is None:
+                        continue
+                    found = True
+                    min_lon = min(min_lon, float(x_min))
+                    min_lat = min(min_lat, float(y_min))
+                    max_lon = max(max_lon, float(x_max))
+                    max_lat = max(max_lat, float(y_max))
+
+        if not found:
+            return None
+
+        return {
+            "min_lon": min_lon,
+            "min_lat": min_lat,
+            "max_lon": max_lon,
+            "max_lat": max_lat,
         }

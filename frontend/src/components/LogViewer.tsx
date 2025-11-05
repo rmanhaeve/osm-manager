@@ -10,6 +10,8 @@ const LogViewer = ({ lines }: LogViewerProps) => {
         maxHeight: '320px',
         overflowY: 'auto',
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco',
+        fontSize: '0.8rem',
+        lineHeight: 1.4,
         background: '#0f172a',
         color: '#e2e8f0'
       }}

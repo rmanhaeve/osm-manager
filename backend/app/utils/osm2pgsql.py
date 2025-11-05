@@ -56,11 +56,17 @@ def _ensure_local_source(options: Osm2pgsqlOptions) -> str:
     url = options.input_url
     target_dir = settings.filesystem.pbf_dir
     target_dir.mkdir(parents=True, exist_ok=True)
-    target_path = target_dir / pathlib.Path(url).name
-    LOGGER.info("downloading_pbf", url=url, destination=str(target_path))
 
-    with httpx.stream("GET", url, timeout=None) as response:
+    with httpx.stream("GET", url, timeout=None, follow_redirects=True) as response:
         response.raise_for_status()
+        resolved_name = pathlib.Path(response.url.path).name or pathlib.Path(url).name
+        target_path = target_dir / resolved_name
+        LOGGER.info(
+            "downloading_pbf",
+            source=url,
+            resolved=str(response.url),
+            destination=str(target_path),
+        )
         with target_path.open("wb") as fh:
             for chunk in response.iter_bytes():
                 fh.write(chunk)
@@ -72,10 +78,10 @@ def build_osm2pgsql_command(options: Osm2pgsqlOptions, input_path: str) -> list[
     cmd = [
         "osm2pgsql",
         f"--database={options.database_name}",
-        f"--username={options.username}",
+        f"--user={options.username}",
         f"--host={options.host}",
         f"--port={options.port}",
-        f"--jobs={options.number_processes}",
+        f"--number-processes={options.number_processes}",
         f"--cache={options.cache_mb}",
     ]
 

@@ -5,9 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_db_session, verify_admin_token
 from app.schemas.databases import (
+    DatabaseBounds,
     DatabaseCreateRequest,
     DatabaseResponse,
     DatabaseStats,
+    DatabaseStyleResponse,
     ExtensionRequest,
     ExtensionResponse,
 )
@@ -30,6 +32,10 @@ def _to_response(record) -> DatabaseResponse:
         last_checked_at=record.last_checked_at,
         created_at=record.created_at,
         updated_at=record.updated_at,
+        min_lon=record.min_lon,
+        min_lat=record.min_lat,
+        max_lon=record.max_lon,
+        max_lat=record.max_lat,
     )
 
 
@@ -101,3 +107,30 @@ async def database_stats(
         size_bytes=stats.get("size_bytes") or 0,
         table_count=stats.get("table_count") or 0,
     )
+
+
+@router.get("/{name}/bounds", response_model=DatabaseBounds)
+async def database_bounds(
+    name: str,
+    session: AsyncSession = Depends(get_db_session),
+) -> DatabaseBounds:
+    service = DatabaseManagerService(session)
+    try:
+        bounds = await service.get_database_bounds(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if bounds is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No geometry data available")
+    return DatabaseBounds(name=name, **bounds)
+
+
+@router.get("/{name}/style", response_model=DatabaseStyleResponse)
+async def database_style(
+    name: str,
+    session: AsyncSession = Depends(get_db_session),
+) -> DatabaseStyleResponse:
+    service = DatabaseManagerService(session)
+    record = await service.get_database(name)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Database not found")
+    return DatabaseStyleResponse(name=name, style_definition=record.style_definition)

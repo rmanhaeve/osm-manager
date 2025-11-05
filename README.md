@@ -195,4 +195,13 @@ See `backend/app/core/config.py` for the full catalog and defaults.
 - Wire authentication/authorization (OIDC, OAuth2) via the `core/security.py` placeholder.
 - Add more comprehensive integration tests using a seeded PostGIS container and non-stub `.osm.pbf` fixtures.
 
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Backend services & API contracts](docs/backend.md)
+- [Import & replication pipelines](docs/import-pipeline.md)
+- [Bounding box derivation & map preview](docs/bounding-boxes.md)
+- [Frontend structure & UI conventions](docs/frontend.md)
+- [Development & operations playbook](docs/development.md)
+
 Happy mapping!

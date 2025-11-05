@@ -46,6 +46,10 @@ class DatabaseResponse(APIModel):
     last_checked_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+    min_lon: float | None = None
+    min_lat: float | None = None
+    max_lon: float | None = None
+    max_lat: float | None = None
 
 
 class DatabaseStats(APIModel):
@@ -53,6 +57,19 @@ class DatabaseStats(APIModel):
     size_bytes: int
     table_count: int
     last_vacuum: datetime | None = None
+
+
+class DatabaseBounds(APIModel):
+    name: str
+    min_lon: float
+    min_lat: float
+    max_lon: float
+    max_lat: float
+
+
+class DatabaseStyleResponse(APIModel):
+    name: str
+    style_definition: str | None = None
 
 
 class ExtensionRequest(APIModel):

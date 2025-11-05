@@ -1,8 +1,9 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import PageHeader from '../components/PageHeader';
 import DataTable from '../components/DataTable';
 import StatusBadge from '../components/StatusBadge';
 import useApi from '../hooks/useApi';
+import { GEOFABRIK_DATA, GeofabrikEntry } from '../data/geofabrik';
 import { Job, ManagedDatabase } from '../types/api';
 
 const DEFAULT_FORM = {
@@ -13,7 +14,9 @@ const DEFAULT_FORM = {
   slim: true,
   hstore: true,
   cache_mb: 2000,
-  number_processes: 4
+  number_processes: 4,
+  preset_pbf: '',
+  style_definition: ''
 };
 
 const ImportsPage = () => {
@@ -22,6 +25,41 @@ const ImportsPage = () => {
   const [databases, setDatabases] = useState<ManagedDatabase[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+
+  const geofabrikGroups = useMemo(() => {
+    const rootEntries = GEOFABRIK_DATA.filter((entry) => !entry.parent).sort((a, b) =>
+      a.label.localeCompare(b.label)
+    );
+    const roots = new Map(rootEntries.map((entry) => [entry.id, entry]));
+
+    const groups = new Map<string, GeofabrikEntry[]>();
+    GEOFABRIK_DATA.forEach((entry) => {
+      if (!entry.parent) {
+        return;
+      }
+      const root = roots.get(entry.parent);
+      if (!root) {
+        return;
+      }
+      if (!groups.has(root.label)) {
+        groups.set(root.label, []);
+      }
+      groups.get(root.label)!.push(entry);
+    });
+
+    const grouped = Array.from(groups.entries())
+      .map(([label, items]) => ({
+        label,
+        items: items.sort((a, b) => a.label.localeCompare(b.label))
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    if (rootEntries.length) {
+      grouped.unshift({ label: 'Continents', items: rootEntries });
+    }
+
+    return grouped;
+  }, []);
 
   const refresh = async () => {
     const [dbs, jobPayload] = await Promise.all([
@@ -34,6 +72,13 @@ const ImportsPage = () => {
 
   useEffect(() => {
     refresh().catch((error) => console.error(error));
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      refresh().catch((error) => console.error(error));
+    }, 5000);
+    return () => window.clearInterval(interval);
   }, []);
 
   const onSubmit = async (event: FormEvent) => {
@@ -50,10 +95,11 @@ const ImportsPage = () => {
       slim: form.slim,
       hstore: form.hstore,
       cache_mb: form.cache_mb,
-      number_processes: form.number_processes
+      number_processes: form.number_processes,
+      style_definition: form.style_definition || undefined
     });
     setMessage('Import queued successfully.');
-    setForm((current) => ({ ...current, pbf_path: '', pbf_url: '' }));
+    setForm((current) => ({ ...current, pbf_path: '', pbf_url: '', preset_pbf: '', style_definition: '' }));
     await refresh();
   };
 
@@ -110,10 +156,34 @@ const ImportsPage = () => {
             <div>Remote PBF URL</div>
             <input
               value={form.pbf_url}
-              onChange={(event) => setForm((current) => ({ ...current, pbf_url: event.target.value }))}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, pbf_url: event.target.value, preset_pbf: '' }))
+              }
               placeholder="https://download.geofabrik.de/europe/monaco-latest.osm.pbf"
               style={{ width: '100%', padding: '0.6rem', marginTop: '0.4rem' }}
             />
+            <select
+              value={form.preset_pbf}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  preset_pbf: event.target.value,
+                  pbf_url: event.target.value || current.pbf_url
+                }))
+              }
+              style={{ width: '100%', padding: '0.6rem', marginTop: '0.6rem' }}
+            >
+              <option value="">Select a Geofabrik preset</option>
+              {geofabrikGroups.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.items.map((entry) => (
+                    <option key={entry.url} value={entry.url}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
           </label>
         </div>
         <div className="grid three">
@@ -158,6 +228,18 @@ const ImportsPage = () => {
           />
           Enable hstore
         </label>
+        <label>
+          <div>Custom table definition</div>
+          <textarea
+            value={form.style_definition}
+            onChange={(event) => setForm((current) => ({ ...current, style_definition: event.target.value }))}
+            placeholder="# Paste osm2pgsql style definitions here"
+            style={{ width: '100%', padding: '0.6rem', marginTop: '0.4rem', minHeight: '6rem', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco' }}
+          />
+          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+            Optional inline osm2pgsql style contents defining tables/columns.
+          </span>
+        </label>
         <button type="submit" className="btn" style={{ marginTop: '1rem' }}>
           Start import
         </button>
@@ -171,7 +253,10 @@ const ImportsPage = () => {
           { header: 'Target', accessor: (job) => job.target_db || '—' },
           {
             header: 'Status',
-            accessor: (job) => <StatusBadge status={job.status} />
+            accessor: (job) => {
+              const status = job.status === 'pending' && job.started_at ? 'running' : job.status;
+              return <StatusBadge status={status} />;
+            }
           },
           {
             header: 'Started',

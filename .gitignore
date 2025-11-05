@@ -13,3 +13,4 @@ data/state/
 data/pbf/
 data/styles/
 .env
+backend/celerybeat-schedule

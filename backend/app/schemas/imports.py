@@ -13,6 +13,7 @@ class ImportRequest(APIModel):
     mode: Literal["create", "append"] = Field("create")
     pbf_path: str | None = Field(None, description="Path to local .pbf file.")
     pbf_url: AnyHttpUrl | None = Field(None, description="Remote .pbf download URL.")
+    style_definition: str | None = Field(None, description="Inline osm2pgsql style content.")
     style_id: str | None = Field(None)
     slim: bool = Field(True)
     hstore: bool = Field(True)

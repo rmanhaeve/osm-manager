@@ -9,12 +9,24 @@ export type ManagedDatabase = {
   last_replication_job_id?: string;
   last_size_bytes?: number;
   last_checked_at?: string;
+  min_lon?: number;
+  min_lat?: number;
+  max_lon?: number;
+  max_lat?: number;
 };
 
 export type DatabaseStats = {
   name: string;
   size_bytes: number;
   table_count: number;
+};
+
+export type DatabaseBounds = {
+  name: string;
+  min_lon: number;
+  min_lat: number;
+  max_lon: number;
+  max_lat: number;
 };
 
 export type Job = {

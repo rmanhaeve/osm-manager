@@ -63,6 +63,16 @@ a {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+@media (max-width: 1024px) {
+  .grid.two {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
+  .grid.three {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -76,9 +86,37 @@ a {
   cursor: pointer;
 }
 
+.btn.btn-small {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+}
+
+.btn.btn-small-secondary {
+  padding: 0.35rem 0.55rem;
+  font-size: 0.85rem;
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563eb;
+}
+
+.btn.btn-small-danger {
+  padding: 0.35rem 0.55rem;
+  font-size: 0.85rem;
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
+}
+
+.table-card {
+  padding: 1.5rem;
+}
+
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
 }
 
 th,

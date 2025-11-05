@@ -11,7 +11,7 @@ BEGIN
       CREATE ROLE app_readonly LOGIN PASSWORD 'app_readonly';
    END IF;
    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'super_user') THEN
-      CREATE ROLE super_user WITH LOGIN PASSWORD 'super_password' CREATEDB CREATEROLE;
+      CREATE ROLE super_user WITH LOGIN PASSWORD 'super_password' SUPERUSER;
    END IF;
 END
 \$\$;

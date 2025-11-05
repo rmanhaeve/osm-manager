@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Float,
 )
 from sqlalchemy.dialects.postgresql import INTERVAL
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -49,6 +50,11 @@ class ManagedDatabase(Base, TimestampMixin):
     )
     last_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    min_lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    min_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    style_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     style: Mapped["Style | None"] = relationship("Style")
     replication_config: Mapped["ReplicationConfig | None"] = relationship(

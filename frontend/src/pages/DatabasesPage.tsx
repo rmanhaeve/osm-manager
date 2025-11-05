@@ -1,10 +1,10 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import useApi from '../hooks/useApi';
-import { DatabaseStats, ManagedDatabase } from '../types/api';
+import { DatabaseBounds, DatabaseStats, ManagedDatabase } from '../types/api';
 import DataTable from '../components/DataTable';
 import PageHeader from '../components/PageHeader';
 import StatsCard from '../components/StatsCard';
-import MapPreview from '../components/MapPreview';
+import MapPreview, { MapPreviewHandle } from '../components/MapPreview';
 
 const DatabasesPage = () => {
   const api = useApi();
@@ -12,10 +12,12 @@ const DatabasesPage = () => {
   const [stats, setStats] = useState<Record<string, DatabaseStats>>({});
   const [form, setForm] = useState({ name: '', display_name: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'idle' | 'success' | 'error'; text: string }>({
+  const [feedback, setFeedback] = useState<{ type: 'idle' | 'success' | 'error' | 'loading'; text: string }>({
     type: 'idle',
     text: ''
   });
+  const [selectedDb, setSelectedDb] = useState<string | null>(null);
+  const mapRef = useRef<MapPreviewHandle | null>(null);
 
   const loadDatabases = async () => {
     const dbs = await api.get<ManagedDatabase[]>('/databases');
@@ -52,9 +54,70 @@ const DatabasesPage = () => {
     }
   };
 
+  const deleteDatabase = async (name: string) => {
+    if (!window.confirm(`Delete database "${name}"? This cannot be undone.`)) {
+      return;
+    }
+    setFeedback({ type: 'idle', text: '' });
+    try {
+      await api.del(`/databases/${name}`);
+      setFeedback({ type: 'success', text: `Database "${name}" deleted.` });
+      await loadDatabases();
+      setSelectedDb((current) => (current === name ? null : current));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete database.';
+      setFeedback({ type: 'error', text: message });
+    }
+  };
+
   const totalSize = useMemo(() =>
     Object.values(stats).reduce((acc, current) => acc + (current.size_bytes || 0), 0),
   [stats]);
+  const connectionInfo = useMemo(() => {
+    const url = new URL(window.location.origin);
+    const host = url.hostname || 'localhost';
+    const port = import.meta.env.VITE_POSTGRES_PORT || '5433';
+    return { host, port };
+  }, []);
+
+  const showBounds = async (dbName: string) => {
+    const record = databases.find((db) => db.name === dbName);
+    if (
+      record &&
+      record.min_lat !== undefined &&
+      record.min_lon !== undefined &&
+      record.max_lat !== undefined &&
+      record.max_lon !== undefined
+    ) {
+      mapRef.current?.showBounds([
+        [record.min_lat, record.min_lon],
+        [record.max_lat, record.max_lon]
+      ]);
+      setSelectedDb(dbName);
+      setFeedback({ type: 'idle', text: '' });
+      return;
+    }
+
+    setFeedback({ type: 'loading', text: `Fetching map bounds for "${dbName}"...` });
+    try {
+      const bounds = await api.get<DatabaseBounds>(`/databases/${dbName}/bounds`);
+      mapRef.current?.showBounds([
+        [bounds.min_lat, bounds.min_lon],
+        [bounds.max_lat, bounds.max_lon]
+      ]);
+      setSelectedDb(dbName);
+      setFeedback({ type: 'idle', text: '' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to fetch bounds for this database.';
+      setFeedback({ type: 'error', text: message });
+    }
+  };
+
+  useEffect(() => {
+    if (databases.length && !selectedDb) {
+      showBounds(databases[0].name).catch((error) => console.error(error));
+    }
+  }, [databases, selectedDb]);
 
   return (
     <div>
@@ -89,23 +152,45 @@ const DatabasesPage = () => {
             <div
               style={{
                 marginTop: '0.75rem',
-                color: feedback.type === 'error' ? '#dc2626' : '#16a34a'
+                color:
+                  feedback.type === 'error'
+                    ? '#dc2626'
+                    : feedback.type === 'loading'
+                    ? '#2563eb'
+                    : '#16a34a'
               }}
             >
               {feedback.text}
             </div>
-          )}
+      )}
         </form>
-        <div className="grid three">
+        <div className="grid two">
           <StatsCard label="Total databases" value={databases.length} />
           <StatsCard label="Total size" value={`${(totalSize / (1024 * 1024)).toFixed(2)} MiB`} />
-          <StatsCard label="Latest refresh" value={new Date().toLocaleTimeString()} />
         </div>
       </div>
       <DataTable
         data={databases}
         columns={[
-          { header: 'Name', accessor: (db) => db.name },
+          {
+            header: 'Name',
+            accessor: (db) => (
+              <button
+                type="button"
+                onClick={() => showBounds(db.name)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  color: '#2563eb',
+                  cursor: 'pointer',
+                  fontWeight: selectedDb === db.name ? 700 : 500
+                }}
+              >
+                {db.name}
+              </button>
+            )
+          },
           { header: 'Display name', accessor: (db) => db.display_name || '—' },
           {
             header: 'Size',
@@ -115,18 +200,61 @@ const DatabasesPage = () => {
             }
           },
           {
+            header: 'Connection URL',
+            accessor: (db) => {
+              let username = 'app_user';
+              let password = 'app_password';
+              let databaseName = `osm_${db.name}`;
+              try {
+                const dsnUrl = new URL(db.dsn.replace('+psycopg', ''));
+                username = dsnUrl.username || username;
+                password = dsnUrl.password || password;
+                const path = dsnUrl.pathname.replace('/', '');
+                if (path) {
+                  databaseName = path;
+                }
+              } catch (error) {
+                // fallback to defaults
+              }
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <code style={{ fontSize: '0.82rem' }}>
+                    {`postgresql://${username}:${password}@${connectionInfo.host}:${connectionInfo.port}/${databaseName}`}
+                  </code>
+                  <code style={{ fontSize: '0.82rem' }}>
+                    {`host=${connectionInfo.host} port=${connectionInfo.port} dbname=${databaseName} user=${username} password=${password}`}
+                  </code>
+                </div>
+              );
+            }
+          },
+          {
             header: 'Tables',
             accessor: (db) => {
               const stat = stats[db.name];
               return stat ? stat.table_count : '—';
             }
+          },
+          {
+            header: 'Actions',
+            accessor: (db) => (
+              <button
+                type="button"
+                className="btn btn-small-danger"
+                onClick={() => deleteDatabase(db.name)}
+                title="Delete database"
+                aria-label={`Delete database ${db.name}`}
+              >
+                ×
+              </button>
+            )
           }
         ]}
       />
       <div className="card">
         <h3>Map preview</h3>
         <p style={{ color: '#64748b' }}>Leaflet preview using the placeholder tiles endpoint.</p>
-        <MapPreview />
+        <MapPreview ref={mapRef} />
       </div>
     </div>
   );

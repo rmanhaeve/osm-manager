@@ -3,10 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_db_session, get_job_service
+from app.api.dependencies import get_db_session, get_job_service, verify_admin_token
 from app.models.enums import JobStatus, JobType
 from app.schemas.jobs import JobListResponse, JobLogLine, JobLogResponse, JobResponse
 from app.services.job_service import AsyncJobService
+from app.workers.tasks import run_import
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -40,6 +41,27 @@ async def list_jobs(
 async def job_detail(job_id: str, jobs: AsyncJobService = Depends(get_job_service)) -> JobResponse:
     job = await jobs.get_job(job_id)
     return _to_job_response(job)
+
+
+@router.post(
+    "/{job_id}/retry",
+    response_model=JobResponse,
+    dependencies=[Depends(verify_admin_token)],
+)
+async def retry_job(
+    job_id: str,
+    jobs: AsyncJobService = Depends(get_job_service),
+) -> JobResponse:
+    job = await jobs.get_job(job_id)
+    if job.status not in {JobStatus.failed, JobStatus.cancelled}:
+        raise HTTPException(status_code=400, detail="Only failed or cancelled jobs can be retried.")
+
+    if job.type != JobType.import_job:
+        raise HTTPException(status_code=400, detail=f"Retry not supported for job type '{job.type}'.")
+
+    new_job = await jobs.create_job(JobType.import_job, job.target_db, job.params or {})
+    run_import.delay(str(new_job.id))
+    return _to_job_response(new_job)
 
 
 @router.get("/{job_id}/logs", response_model=JobLogResponse)

@@ -17,25 +17,27 @@ const DataTable = <T,>({ data, columns, emptyMessage = 'No results' }: DataTable
   }
 
   return (
-    <div className="card">
-      <table>
-        <thead>
-          <tr>
-            {columns.map((column) => (
-              <th key={column.header}>{column.header}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row, rowIndex) => (
-            <tr key={rowIndex}>
+    <div className="card table-card">
+      <div className="table-wrapper">
+        <table>
+          <thead>
+            <tr>
               {columns.map((column) => (
-                <td key={column.header}>{column.accessor(row)}</td>
+                <th key={column.header}>{column.header}</th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {data.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {columns.map((column) => (
+                  <td key={column.header}>{column.accessor(row)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };
