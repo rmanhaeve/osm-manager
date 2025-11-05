@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import enum
 import uuid
 
 from sqlalchemy import (
@@ -21,6 +22,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.enums import JobStatus, JobType
+
+
+def _enum_values(enum_cls: type[enum.Enum]) -> list[str]:
+    return [member.value for member in enum_cls]
 
 
 class ManagedDatabase(Base, TimestampMixin):
@@ -81,13 +86,24 @@ class Job(Base, TimestampMixin, UUIDPrimaryKeyMixin):
     __tablename__ = "jobs"
 
     type: Mapped[JobType] = mapped_column(
-        Enum(JobType, name="job_type", native_enum=False), nullable=False
+        Enum(
+            JobType,
+            name="job_type",
+            native_enum=False,
+            values_callable=_enum_values,
+        ),
+        nullable=False,
     )
     target_db: Mapped[str | None] = mapped_column(
         ForeignKey("managed_databases.name", ondelete="SET NULL"), nullable=True
     )
     status: Mapped[JobStatus] = mapped_column(
-        Enum(JobStatus, name="job_status", native_enum=False),
+        Enum(
+            JobStatus,
+            name="job_status",
+            native_enum=False,
+            values_callable=_enum_values,
+        ),
         default=JobStatus.pending,
         nullable=False,
     )

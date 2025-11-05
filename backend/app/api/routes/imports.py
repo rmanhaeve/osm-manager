@@ -25,7 +25,11 @@ async def start_import(
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target database not found")
 
-    job = await jobs.create_job(JobType.import_job, payload.target_db, payload.model_dump())
+    job = await jobs.create_job(
+        JobType.import_job,
+        payload.target_db,
+        payload.model_dump(mode="json"),
+    )
     run_import.delay(str(job.id))
     return ImportResponse(job_id=str(job.id), status=job.status.value)
 

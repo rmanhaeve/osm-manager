@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import AnyHttpUrl, Field, validator
+from pydantic import AnyHttpUrl, Field, model_validator, validator
 
 from .base import APIModel
 from .databases import validate_db_identifier
@@ -32,11 +32,11 @@ class ImportRequest(APIModel):
             raise ValueError("Only whitelisted extra flags allowed.")
         return value
 
-    @validator("pbf_path", always=True)
-    def validate_source(cls, value: str | None, values: dict) -> str | None:
-        if not value and not values.get("pbf_url"):
+    @model_validator(mode="after")
+    def validate_source(cls, model: "ImportRequest") -> "ImportRequest":
+        if not model.pbf_path and not model.pbf_url:
             raise ValueError("pbf_path or pbf_url must be provided")
-        return value
+        return model
 
 
 class ImportResponse(APIModel):
