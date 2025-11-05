@@ -1,0 +1,159 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: osm_mgr-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: osm_manager
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/scripts/init-db.sh:/docker-entrypoint-initdb.d/00-init-manager.sh:ro
+      - ./data:/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d osm_manager"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    shm_size: "1gb"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: osm_mgr-redis
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: osm_mgr-api
+    entrypoint:
+      - ./scripts/docker-entrypoint.sh
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: development
+      OSM_MANAGER__API_HOST: 0.0.0.0
+      OSM_MANAGER__API_PORT: 8000
+      OSM_MANAGER__DATABASE__PRIMARY_DSN: postgresql+psycopg://app_user:app_password@postgres:5432/osm_manager
+      OSM_MANAGER__DATABASE__ADMIN_DSN: postgresql+psycopg://super_user:super_password@postgres:5432/postgres
+      OSM_MANAGER__REDIS__URL: redis://redis:6379/0
+      OSM_MANAGER__CELERY__BROKER_URL: redis://redis:6379/0
+      OSM_MANAGER__CELERY__RESULT_BACKEND: redis://redis:6379/1
+      OSM_MANAGER__FILESYSTEM_ROOT: /data
+      OSM_MANAGER__SECURITY__ADMIN_API_TOKEN: change-me
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: osm_mgr-worker
+    entrypoint:
+      - ./scripts/docker-entrypoint.sh
+    command:
+      - celery
+      - -A
+      - app.workers.celery_app
+      - worker
+      - --loglevel=info
+      - --concurrency=2
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      ENVIRONMENT: development
+      OSM_MANAGER__DATABASE__PRIMARY_DSN: postgresql+psycopg://app_user:app_password@postgres:5432/osm_manager
+      OSM_MANAGER__DATABASE__ADMIN_DSN: postgresql+psycopg://super_user:super_password@postgres:5432/postgres
+      OSM_MANAGER__REDIS__URL: redis://redis:6379/0
+      OSM_MANAGER__CELERY__BROKER_URL: redis://redis:6379/0
+      OSM_MANAGER__CELERY__RESULT_BACKEND: redis://redis:6379/1
+      OSM_MANAGER__FILESYSTEM_ROOT: /data
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+    restart: unless-stopped
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: osm_mgr-beat
+    entrypoint:
+      - ./scripts/docker-entrypoint.sh
+    command:
+      - celery
+      - -A
+      - app.workers.celery_app
+      - beat
+      - --loglevel=info
+    depends_on:
+      worker:
+        condition: service_started
+    environment:
+      ENVIRONMENT: development
+      OSM_MANAGER__DATABASE__PRIMARY_DSN: postgresql+psycopg://app_user:app_password@postgres:5432/osm_manager
+      OSM_MANAGER__DATABASE__ADMIN_DSN: postgresql+psycopg://super_user:super_password@postgres:5432/postgres
+      OSM_MANAGER__REDIS__URL: redis://redis:6379/0
+      OSM_MANAGER__CELERY__BROKER_URL: redis://redis:6379/0
+      OSM_MANAGER__CELERY__RESULT_BACKEND: redis://redis:6379/1
+      OSM_MANAGER__FILESYSTEM_ROOT: /data
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: osm_mgr-frontend
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      VITE_API_BASE_URL: http://api:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/usr/src/app
+      - /usr/src/app/node_modules
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
