@@ -11,6 +11,8 @@ RUN apt-get update && \
       build-essential \
       git \
       osm2pgsql \
+      osmcoastline \
+      gdal-bin \
       libpq-dev \
       curl && \
     rm -rf /var/lib/apt/lists/*

@@ -4,19 +4,23 @@ import DataTable from '../components/DataTable';
 import StatusBadge from '../components/StatusBadge';
 import useApi from '../hooks/useApi';
 import { GEOFABRIK_DATA, GeofabrikEntry } from '../data/geofabrik';
+import { DEFAULT_STYLE } from '../data/defaultStyle';
+import Combobox from '../components/Combobox';
 import { Job, ManagedDatabase } from '../types/api';
 
 const DEFAULT_FORM = {
   target_db: '',
   mode: 'create',
-  pbf_path: '',
-  pbf_url: '',
+  pbf_source: '',
   slim: true,
   hstore: true,
   cache_mb: 2000,
   number_processes: 4,
   preset_pbf: '',
-  style_definition: ''
+  style_definition: DEFAULT_STYLE,
+  include_coastlines: false,
+  coastline_source: 'extract',
+  coastline_water_path: 'https://osmdata.openstreetmap.de/download/water-polygons-split-4326.zip'
 };
 
 const ImportsPage = () => {
@@ -25,6 +29,7 @@ const ImportsPage = () => {
   const [databases, setDatabases] = useState<ManagedDatabase[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+  const [styleLocked, setStyleLocked] = useState(false);
 
   const geofabrikGroups = useMemo(() => {
     const rootEntries = GEOFABRIK_DATA.filter((entry) => !entry.parent).sort((a, b) =>
@@ -81,25 +86,85 @@ const ImportsPage = () => {
     return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (form.mode === 'append') {
+      if (!form.target_db) {
+        setStyleLocked(true);
+        return () => {
+          cancelled = true;
+        };
+      }
+      setStyleLocked(true);
+      (async () => {
+        try {
+          const response = await api.get<{ style_definition: string | null }>(
+            `/databases/${form.target_db}/style`
+          );
+          if (!cancelled) {
+            setForm((current) => ({
+              ...current,
+              style_definition: response.style_definition || DEFAULT_STYLE
+            }));
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setForm((current) => ({
+              ...current,
+              style_definition: DEFAULT_STYLE
+            }));
+          }
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setStyleLocked(false);
+    setForm((current) => ({
+      ...current,
+      style_definition: current.style_definition || DEFAULT_STYLE
+    }));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.mode, form.target_db, api]);
+
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!form.pbf_path && !form.pbf_url) {
+    const trimmedSource = form.pbf_source.trim();
+    if (!trimmedSource) {
       setMessage('Provide a local path or a remote .pbf URL.');
       return;
     }
+    const isRemote = /^https?:\/\//i.test(trimmedSource);
     await api.post('/imports', {
       target_db: form.target_db,
       mode: form.mode,
-      pbf_path: form.pbf_path || undefined,
-      pbf_url: form.pbf_url || undefined,
+      pbf_path: isRemote ? undefined : trimmedSource,
+      pbf_url: isRemote ? trimmedSource : undefined,
       slim: form.slim,
       hstore: form.hstore,
       cache_mb: form.cache_mb,
       number_processes: form.number_processes,
-      style_definition: form.style_definition || undefined
+      style_definition: form.style_definition || undefined,
+      include_coastlines: form.include_coastlines,
+      coastline_source: form.include_coastlines ? form.coastline_source : undefined,
+      coastline_water_path:
+        form.include_coastlines && form.coastline_source === 'water'
+          ? form.coastline_water_path
+          : undefined
     });
     setMessage('Import queued successfully.');
-    setForm((current) => ({ ...current, pbf_path: '', pbf_url: '', preset_pbf: '', style_definition: '' }));
+    setForm((current) => ({
+      ...current,
+      pbf_source: '',
+      preset_pbf: '',
+      style_definition: current.mode === 'create' ? current.style_definition || DEFAULT_STYLE : current.style_definition
+    }));
     await refresh();
   };
 
@@ -144,46 +209,36 @@ const ImportsPage = () => {
         </div>
         <div className="grid two">
           <label>
-            <div>Local PBF path</div>
+            <div>PBF path or URL</div>
             <input
-              value={form.pbf_path}
-              onChange={(event) => setForm((current) => ({ ...current, pbf_path: event.target.value }))}
-              placeholder="/data/pbf/europe-latest.osm.pbf"
+              value={form.pbf_source}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, pbf_source: event.target.value, preset_pbf: '' }))
+              }
+              placeholder="/data/pbf/europe-latest.osm.pbf or https://download.geofabrik.de/europe/monaco-latest.osm.pbf"
               style={{ width: '100%', padding: '0.6rem', marginTop: '0.4rem' }}
             />
           </label>
           <label>
-            <div>Remote PBF URL</div>
-            <input
-              value={form.pbf_url}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, pbf_url: event.target.value, preset_pbf: '' }))
-              }
-              placeholder="https://download.geofabrik.de/europe/monaco-latest.osm.pbf"
-              style={{ width: '100%', padding: '0.6rem', marginTop: '0.4rem' }}
-            />
-            <select
+            <div>Geofabrik preset</div>
+            <Combobox
+              options={geofabrikGroups.flatMap((group) =>
+                group.items.map((entry) => ({
+                  value: entry.url,
+                  label: entry.label,
+                  group: group.label
+                }))
+              )}
+              placeholder="Select or search preset"
               value={form.preset_pbf}
-              onChange={(event) =>
+              onChange={(value) =>
                 setForm((current) => ({
                   ...current,
-                  preset_pbf: event.target.value,
-                  pbf_url: event.target.value || current.pbf_url
+                  preset_pbf: value,
+                  pbf_source: value || current.pbf_source
                 }))
               }
-              style={{ width: '100%', padding: '0.6rem', marginTop: '0.6rem' }}
-            >
-              <option value="">Select a Geofabrik preset</option>
-              {geofabrikGroups.map((group) => (
-                <optgroup key={group.label} label={group.label}>
-                  {group.items.map((entry) => (
-                    <option key={entry.url} value={entry.url}>
-                      {entry.label}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+            />
           </label>
         </div>
         <div className="grid three">
@@ -220,17 +275,58 @@ const ImportsPage = () => {
             Slim mode
           </label>
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <input
-            type="checkbox"
-            checked={form.hstore}
-            onChange={(event) => setForm((current) => ({ ...current, hstore: event.target.checked }))}
-          />
-          Enable hstore
-        </label>
+        <div className="grid two">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input
+              type="checkbox"
+              checked={form.hstore}
+              onChange={(event) => setForm((current) => ({ ...current, hstore: event.target.checked }))}
+            />
+            Enable hstore
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input
+              type="checkbox"
+              checked={form.include_coastlines}
+              onChange={(event) => setForm((current) => ({ ...current, include_coastlines: event.target.checked }))}
+            />
+            Generate coastline polygons
+          </label>
+        </div>
+        {form.include_coastlines && (
+          <div className="grid two" style={{ marginTop: '0.5rem' }}>
+            <label>
+              <div>Coastline source</div>
+              <select
+                value={form.coastline_source}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, coastline_source: event.target.value }))
+                }
+                style={{ width: '100%', padding: '0.6rem', marginTop: '0.4rem' }}
+              >
+                <option value="extract">Generate from current PBF extract</option>
+                <option value="water">Load water polygons zip (osmdata)</option>
+              </select>
+            </label>
+            {form.coastline_source === 'water' && (
+              <label>
+                <div>Water polygons zip (GDAL-supported)</div>
+                <input
+                  value={form.coastline_water_path}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, coastline_water_path: event.target.value }))
+                  }
+                  placeholder="https://osmdata.openstreetmap.de/download/water-polygons-split-4326.zip"
+                  style={{ width: '100%', padding: '0.6rem', marginTop: '0.4rem' }}
+                />
+              </label>
+            )}
+          </div>
+        )}
         <label>
-          <div>Custom table definition</div>
+          <div>Table definition</div>
           <textarea
+            disabled={styleLocked}
             value={form.style_definition}
             onChange={(event) => setForm((current) => ({ ...current, style_definition: event.target.value }))}
             placeholder="# Paste osm2pgsql style definitions here"

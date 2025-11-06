@@ -21,6 +21,11 @@ class ImportRequest(APIModel):
     number_processes: int = Field(4, ge=1, le=16)
     extra_args: list[str] = Field(default_factory=list)
     dry_run: bool = Field(False)
+    include_coastlines: bool = Field(False, description="Generate coastline polygons using osmcoastline.")
+    coastline_source: Literal["extract", "water"] = Field("extract")
+    coastline_water_path: str | None = Field(
+        None, description="Path or URL to water polygons dataset when coastline_source=water."
+    )
 
     @validator("target_db")
     def validate_target_db(cls, value: str) -> str:

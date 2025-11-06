@@ -110,7 +110,7 @@ def run_osm2pgsql(
     options: Osm2pgsqlOptions,
     log_file: pathlib.Path,
     line_callback: Callable[[str], None] | None = None,
-) -> int:
+) -> tuple[int, str]:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     source = _ensure_local_source(options)
     cmd = build_osm2pgsql_command(options, source)
@@ -137,4 +137,4 @@ def run_osm2pgsql(
                 line_callback(line.rstrip())
         process.wait()
         log_handle.write(f"# Finished with exit code {process.returncode} at {time.asctime()}\n")
-    return process.returncode or 0
+    return (process.returncode or 0, source)

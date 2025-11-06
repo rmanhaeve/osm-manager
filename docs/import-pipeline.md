@@ -31,6 +31,11 @@ in the codebase, and how replication fits into the longer-term maintenance story
    - `/jobs` polls job status. `/jobs/{id}/logs` shows streaming output.
    - `/databases` reflects new `last_import_job_id` and cached bounds, allowing
      the map preview to zoom without recomputing expensive extents.
+   - If “Generate coastline polygons” is checked during import:
+     - In **extract** mode, `osmcoastline` runs against the downloaded PBF and imports
+       `coastline_land` / `coastline_water` layers.
+     - In **water file** mode, a remote or local water-polygons dataset (defaulting to
+       the Geofabrik download) is pulled in via `ogr2ogr` and stored as `coastline_water`.
 
 ## Error Handling
 

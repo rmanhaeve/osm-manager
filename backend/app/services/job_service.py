@@ -49,10 +49,11 @@ class AsyncJobService:
         result = await self.session.execute(
             select(JobLog)
             .where(JobLog.job_id == job_id)
-            .order_by(JobLog.ts.asc())
+            .order_by(JobLog.ts.desc(), JobLog.id.desc())
             .limit(limit)
         )
-        return list(result.scalars().all())
+        logs = list(result.scalars().all())
+        return list(reversed(logs))
 
 
 class SyncJobService:

@@ -39,6 +39,7 @@ class DatabaseResponse(APIModel):
     display_name: str | None = None
     description: str | None = None
     style_id: str | None = None
+    style_definition: str | None = None
     is_active: bool
     last_import_job_id: str | None = None
     last_replication_job_id: str | None = None

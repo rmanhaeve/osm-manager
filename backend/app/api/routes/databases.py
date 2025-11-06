@@ -25,6 +25,7 @@ def _to_response(record) -> DatabaseResponse:
         display_name=record.display_name,
         description=record.description,
         style_id=str(record.style_id) if record.style_id else None,
+        style_definition=record.style_definition,
         is_active=record.is_active,
         last_import_job_id=str(record.last_import_job_id) if record.last_import_job_id else None,
         last_replication_job_id=str(record.last_replication_job_id) if record.last_replication_job_id else None,

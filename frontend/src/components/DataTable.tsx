@@ -9,9 +9,15 @@ type DataTableProps<T> = {
   data: T[];
   columns: Column<T>[];
   emptyMessage?: string;
+  rowClassName?: (row: T) => string | undefined;
 };
 
-const DataTable = <T,>({ data, columns, emptyMessage = 'No results' }: DataTableProps<T>) => {
+const DataTable = <T,>({
+  data,
+  columns,
+  emptyMessage = 'No results',
+  rowClassName
+}: DataTableProps<T>) => {
   if (!data.length) {
     return <div className="card">{emptyMessage}</div>;
   }
@@ -29,7 +35,7 @@ const DataTable = <T,>({ data, columns, emptyMessage = 'No results' }: DataTable
           </thead>
           <tbody>
             {data.map((row, rowIndex) => (
-              <tr key={rowIndex}>
+              <tr key={rowIndex} className={rowClassName?.(row)}>
                 {columns.map((column) => (
                   <td key={column.header}>{column.accessor(row)}</td>
                 ))}

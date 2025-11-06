@@ -130,3 +130,9 @@ th {
   font-size: 0.9rem;
   color: #475569;
 }
+
+.table-wrapper tr.is-selected td {
+  background: rgba(37, 99, 235, 0.08);
+  color: #1e3a8a;
+  font-weight: 600;
+}

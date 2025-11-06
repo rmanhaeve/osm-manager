@@ -28,6 +28,24 @@ async def test_async_job_service(async_session: AsyncSession) -> None:
     assert jobs[0].id == job.id
 
 
+@pytest.mark.asyncio
+async def test_async_job_service_get_logs_returns_latest(async_session: AsyncSession) -> None:
+    service = AsyncJobService(async_session)
+    job = await service.create_job(JobType.import_job, "test", {"mode": "create"})
+
+    async_session.add_all(
+        [JobLog(job_id=job.id, line=f"line-{idx}") for idx in range(250)]
+    )
+    await async_session.commit()
+
+    logs = await service.get_logs(str(job.id), limit=200)
+
+    assert len(logs) == 200
+    assert logs[0].line == "line-50"
+    assert logs[-1].line == "line-249"
+    assert all(logs[i].ts <= logs[i + 1].ts for i in range(len(logs) - 1))
+
+
 def test_sync_job_service() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

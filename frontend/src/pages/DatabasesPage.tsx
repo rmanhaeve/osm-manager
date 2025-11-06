@@ -256,6 +256,30 @@ const DatabasesPage = () => {
         <p style={{ color: '#64748b' }}>Leaflet preview using the placeholder tiles endpoint.</p>
         <MapPreview ref={mapRef} />
       </div>
+      <div className="card">
+        <h3>Table definition</h3>
+        <textarea
+          readOnly
+          value={
+            selectedDb
+              ? databases.find((db) => db.name === selectedDb)?.style_definition || 'No inline table definition stored.'
+              : 'Select a database above to view the stored table definition.'
+          }
+          style={{
+            width: '100%',
+            minHeight: '10rem',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco',
+            fontSize: '0.85rem',
+            background: '#0f172a',
+            color: '#e2e8f0',
+            borderRadius: '0.5rem',
+            padding: '1rem'
+          }}
+        />
+        <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.75rem' }}>
+          Inline styles are captured from the most recent import for this database.
+        </p>
+      </div>
     </div>
   );
 };

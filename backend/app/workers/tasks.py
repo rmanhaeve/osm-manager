@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import structlog
 from celery import shared_task
+import os
+import subprocess
+import httpx
+import zipfile
 from pathlib import Path
 from psycopg import connect
 from sqlalchemy.engine import make_url
@@ -101,6 +105,168 @@ def _calculate_bounds_sync(full_name: str) -> dict[str, float] | None:
     }
 
 
+def _resolve_resource(path: str, log_dir: Path) -> str:
+    """Return a local filesystem path for the given resource, downloading if remote."""
+    if path.startswith(("http://", "https://")):
+        filename = Path(path).name or "resource"
+        target = log_dir / filename
+        with httpx.stream("GET", path, timeout=None, follow_redirects=True) as response:
+            response.raise_for_status()
+            with target.open("wb") as fh:
+                for chunk in response.iter_bytes():
+                    fh.write(chunk)
+        return str(target)
+
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = settings.filesystem.root / path.lstrip("/")
+    if not candidate.exists():
+        raise FileNotFoundError(f"Resource not found at {candidate}")
+    return str(candidate)
+
+
+def _import_water_polygons(
+    *,
+    water_path: str,
+    database_name: str,
+    log_dir: Path,
+    options: Osm2pgsqlOptions,
+    job_service: SyncJobService,
+    job_id: str,
+) -> bool:
+    job_service.append_log(job_id, "Coastlines: loading water polygons dataset.")
+    try:
+        local_path = _resolve_resource(water_path, log_dir)
+    except Exception as exc:
+        job_service.append_log(job_id, f"Coastlines: unable to resolve water dataset ({exc}).")
+        LOGGER.exception("coastline_water_resolution_failed", job_id=job_id)
+        return False
+
+    data_source = local_path
+    if local_path.lower().endswith(".zip"):
+        try:
+            with zipfile.ZipFile(local_path) as archive:
+                shapefile = next((name for name in archive.namelist() if name.lower().endswith(".shp")), None)
+        except Exception as exc:  # noqa: BLE001
+            job_service.append_log(job_id, f"Coastlines: invalid zip archive ({exc}).")
+            LOGGER.exception("coastline_water_zip_failed", job_id=job_id)
+            return False
+        if not shapefile:
+            job_service.append_log(job_id, "Coastlines: no shapefile found in water dataset.")
+            return False
+        data_source = f"/vsizip/{local_path}/{shapefile}"
+
+    password_fragment = f" password={options.password}" if options.password else ""
+    pg_conn = (
+        f"PG:host={options.host} port={options.port} user={options.username}"
+        f"{password_fragment} dbname={database_name}"
+    )
+    env = os.environ.copy()
+    if options.password:
+        env["PGPASSWORD"] = options.password
+    try:
+        subprocess.run(
+            [
+                "ogr2ogr",
+                "-f",
+                "PostgreSQL",
+                pg_conn,
+                data_source,
+                "-nln",
+                "coastline_water",
+                "-overwrite",
+            ],
+            check=True,
+            env=env,
+        )
+    except subprocess.CalledProcessError as exc:
+        job_service.append_log(job_id, f"Coastlines: failed to import water polygons ({exc}).")
+        LOGGER.exception("coastline_water_import_failed", job_id=job_id)
+        return False
+    return True
+
+
+def _import_coastlines(
+    *,
+    source_path: str,
+    database_name: str,
+    log_dir: Path,
+    options: Osm2pgsqlOptions,
+    job_service: SyncJobService,
+    job_id: str,
+    mode: str,
+    water_path: str | None,
+) -> bool:
+    """Generate coastline polygons or load existing water polygons."""
+    if mode == "water":
+        if not water_path:
+            job_service.append_log(job_id, "Coastlines: water polygons path not provided.")
+            return False
+        return _import_water_polygons(
+            water_path=water_path,
+            database_name=database_name,
+            log_dir=log_dir,
+            options=options,
+            job_service=job_service,
+            job_id=job_id,
+        )
+
+    coastline_db = log_dir / "coastlines.sqlite"
+    job_service.append_log(job_id, "Coastlines: generating polygons with osmcoastline.")
+    try:
+        subprocess.run(
+            [
+                "osmcoastline",
+                "--output-database",
+                str(coastline_db),
+                "--gdal-driver",
+                "SQLite",
+                "--output-polygons=both",
+                "--overwrite",
+                source_path,
+            ],
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        job_service.append_log(job_id, f"Coastlines: osmcoastline failed ({exc}).")
+        LOGGER.exception("coastline_generation_failed", job_id=job_id)
+        return False
+
+    password_fragment = f" password={options.password}" if options.password else ""
+    pg_conn = (
+        f"PG:host={options.host} port={options.port} user={options.username}"
+        f"{password_fragment} dbname={database_name}"
+    )
+    env = os.environ.copy()
+    if options.password:
+        env["PGPASSWORD"] = options.password
+
+    for layer, target in (("land_polygons", "coastline_land"), ("water_polygons", "coastline_water")):
+        job_service.append_log(job_id, f"Coastlines: importing {layer} into {target}.")
+        try:
+            subprocess.run(
+                [
+                    "ogr2ogr",
+                    "-f",
+                    "PostgreSQL",
+                    pg_conn,
+                    str(coastline_db),
+                    layer,
+                    "-nln",
+                    target,
+                    "-overwrite",
+                ],
+                check=True,
+                env=env,
+            )
+        except subprocess.CalledProcessError as exc:
+            job_service.append_log(job_id, f"Coastlines: failed to import {layer} ({exc}).")
+            LOGGER.exception("coastline_import_failed", job_id=job_id, layer=layer)
+            return False
+
+    return True
+
+
 @shared_task(name="jobs.run_import", bind=True)
 def run_import(self, job_id: str) -> None:
     """Celery task that runs osm2pgsql and records job metadata/bounds."""
@@ -145,8 +311,10 @@ def run_import(self, job_id: str) -> None:
         def log_callback(line: str) -> None:
             job_service.append_log(job_id, line)
 
+        include_coastlines = bool(job.params.get("include_coastlines") if job.params else False)
+
         try:
-            exit_code = run_osm2pgsql(options, log_path, line_callback=log_callback)
+            exit_code, source_path = run_osm2pgsql(options, log_path, line_callback=log_callback)
         except Exception as exc:  # noqa: BLE001
             LOGGER.exception("import_failed", job_id=job_id)
             job_service.append_log(job_id, f"ERROR: {exc}")
@@ -166,6 +334,24 @@ def run_import(self, job_id: str) -> None:
                 managed.max_lat = bounds["max_lat"]
             if style_definition:
                 managed.style_definition = style_definition
+
+            if include_coastlines:
+                coastline_source = (job.params.get("coastline_source") if job.params else None) or "extract"
+                water_path = job.params.get("coastline_water_path") if job.params else None
+                coast_ok = _import_coastlines(
+                    source_path=source_path,
+                    database_name=options.database_name,
+                    log_dir=log_dir,
+                    options=options,
+                    job_service=job_service,
+                    job_id=job_id,
+                    mode=coastline_source,
+                    water_path=water_path,
+                )
+                if not coast_ok:
+                    job_service.finish_job(job_id, JobStatus.failed, "Coastline generation failed")
+                    return
+
             job_service.finish_job(job_id, JobStatus.success)
 
 

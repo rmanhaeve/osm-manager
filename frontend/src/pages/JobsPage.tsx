@@ -23,10 +23,25 @@ const JobsPage = () => {
     loadJobs().catch((err) => console.error(err));
   }, []);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      loadJobs().catch((err) => console.error(err));
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const selectJob = async (job: Job) => {
     setSelectedJob(job);
-    const response = await api.get<{ job_id: string; lines: JobLogLine[] }>(`/jobs/${job.id}/logs`);
-    setLogs(response.lines);
+    setLogs([]);
+    setError(null);
+    try {
+      const response = await api.get<{ job_id: string; lines: JobLogLine[] }>(`/jobs/${job.id}/logs`);
+      setLogs(response.lines);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      }
+    }
   };
 
   const retryJob = async (job: Job) => {
@@ -46,6 +61,47 @@ const JobsPage = () => {
       }
     }
   };
+
+  const selectedJobStatus = selectedJob
+    ? jobs.find((job) => job.id === selectedJob.id)?.status || selectedJob.status
+    : undefined;
+
+  useEffect(() => {
+    if (!selectedJob) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const fetchLogs = async () => {
+      try {
+        const response = await api.get<{ job_id: string; lines: JobLogLine[] }>(`/jobs/${selectedJob.id}/logs`);
+        if (!cancelled) {
+          setLogs(response.lines);
+        }
+      } catch (err) {
+        if (!cancelled && err instanceof Error) {
+          setError(err.message);
+        }
+      }
+    };
+
+    fetchLogs().catch((err) => console.error(err));
+
+    if (selectedJobStatus === 'pending' || selectedJobStatus === 'running') {
+      const interval = window.setInterval(() => {
+        fetchLogs().catch((err) => console.error(err));
+      }, 2000);
+      return () => {
+        cancelled = true;
+        window.clearInterval(interval);
+      };
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, selectedJob, selectedJobStatus]);
 
   return (
     <div>
@@ -106,6 +162,7 @@ const JobsPage = () => {
               accessor: (job) => (job.duration_ms ? `${(job.duration_ms / 1000).toFixed(1)} s` : '—')
             },
           ]}
+          rowClassName={(job) => (selectedJob?.id === job.id ? 'is-selected' : undefined)}
         />
         <LogViewer lines={logs} />
       </div>
