@@ -4,11 +4,10 @@ OSM Manager is a production-ready starter kit for orchestrating **osm2pgsql** im
 
 ## Architecture
 
-- **FastAPI backend (`backend/app`)** – REST API for managing target databases, launching imports, replication runs, job history, and metrics. Uses SQLAlchemy 2.0 + psycopg3, pydantic settings, SlowAPI rate limiting, structured logging, and Prometheus metrics.
-- **Celery workers (`backend/app/workers`)** – Long running jobs for osm2pgsql imports, replication updates, vacuum/housekeeping, and metrics aggregation. Logs stream to disk (`/data/logs/<job_id>`) and into the `job_logs` table.
-- **PostgreSQL + PostGIS (`docker-compose` PostGIS image)** – Primary `osm_manager` metadata catalog plus dynamically managed target databases. Init script provisions least-privilege roles (`app_user`, `app_readonly`) and elevated role (`super_user`) for DDL operations.
+- **Backend (`backend/app`)** – Single container running FastAPI REST API + Celery worker + Celery beat. Manages databases, imports, replication, jobs, and metrics. Uses SQLAlchemy 2.0 + psycopg3, pydantic settings, SlowAPI rate limiting, structured logging, and Prometheus metrics.
+- **PostgreSQL + PostGIS** – Primary `osm_manager` metadata catalog plus dynamically managed target databases. Backend auto-provisions roles on startup.
 - **Redis** – Celery broker/result backend. Can be swapped for Redis Sentinel or RabbitMQ in production.
-- **React + Vite frontend (`frontend`)** – Minimal management GUI with Databases, Imports, Replication, Jobs, and Settings pages, plus a Leaflet preview backed by a stub `/tiles` API.
+- **React + Vite frontend (`frontend`)** – Management GUI with Databases, Imports, Replication, Jobs, and Settings pages, plus activity monitoring and log viewer.
 - **Observability** – Structlog JSON logs, request IDs, Prometheus metrics endpoint (`/metrics`), and rate-limited mutating routes.
 
 ```
