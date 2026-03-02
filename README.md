@@ -129,6 +129,34 @@ Import jobs use the safe wrapper (`app/utils/osm2pgsql.py`) which builds command
 
 3. Celery beat (`jobs.schedule_replication_updates`) automatically queues replication jobs using the configured interval. Each run updates `replication_configs.last_sequence_number`, persists `state.txt`, and logs output.
 
+## TrueNAS Scale Deployment
+
+A TrueNAS Scale-compatible compose file is provided at `docker-compose.truenas.yml`. This uses pre-built images from GitHub Container Registry and explicit host paths for persistent storage.
+
+### Setup
+
+1. Create the required directories on your TrueNAS pool:
+
+   ```bash
+   mkdir -p /mnt/pool/appdata/osm_mgr/{data,pgdata,redisdata}
+   ```
+
+2. Adjust the paths in `docker-compose.truenas.yml` to match your pool name if different from `pool`.
+
+3. Update the passwords and API token before deploying:
+   - `POSTGRES_PASSWORD`
+   - `OSM_MANAGER__DATABASE__PRIMARY_DSN` and `ADMIN_DSN` passwords
+   - `OSM_MANAGER__SECURITY__ADMIN_API_TOKEN`
+
+4. In TrueNAS Scale, go to **Apps → Discover Apps → Custom App** and paste the contents of `docker-compose.truenas.yml` into the YAML configuration.
+
+### Notes
+
+- The compose file uses list-style environment variables (`- KEY=value`) for TrueNAS compatibility
+- Named volumes are replaced with explicit host paths to ensure data persists on ZFS
+- Images are pulled from `ghcr.io/rmanhaeve/osm-manager/backend` and `frontend`
+- Health checks with `depends_on: condition:` are simplified since TrueNAS doesn't fully support them
+
 ## Local Development
 
 ### Backend

@@ -18,7 +18,7 @@ services:
       - -c
       - min_wal_size=1GB
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - /mnt/pool/appdata/osm_mgr/pgdata:/var/lib/postgresql/data
       - /mnt/pool/appdata/osm_mgr/data:/data
     ports:
       - "5433:5432"
@@ -34,7 +34,7 @@ services:
       - --loglevel
       - warning
     volumes:
-      - redisdata:/data
+      - /mnt/pool/appdata/osm_mgr/redisdata:/data
     ports:
       - "6380:6379"
     restart: unless-stopped
@@ -120,6 +120,4 @@ services:
       - "5173:5173"
     restart: unless-stopped
 
-volumes:
-  pgdata:
-  redisdata:
+
