@@ -21,7 +21,7 @@ services:
       - /mnt/pool/appdata/osm_mgr/pgdata:/var/lib/postgresql/data
       - /mnt/pool/appdata/osm_mgr/data:/data
     ports:
-      - "5433:5432"
+      - "5432:5432"
     restart: unless-stopped
 
   redis:
@@ -35,8 +35,6 @@ services:
       - warning
     volumes:
       - /mnt/pool/appdata/osm_mgr/redisdata:/data
-    ports:
-      - "6380:6379"
     restart: unless-stopped
 
   api:
