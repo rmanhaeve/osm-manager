@@ -5,13 +5,14 @@ import StatusBadge from '../components/StatusBadge';
 import useApi from '../hooks/useApi';
 import { Job, JobLogLine } from '../types/api';
 import LogViewer from '../components/LogViewer';
+import { useToast } from '../components/ToastProvider';
 
 const JobsPage = () => {
   const api = useApi();
+  const { addToast } = useToast();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [logs, setLogs] = useState<JobLogLine[]>([]);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadJobs = async () => {
@@ -45,26 +46,27 @@ const JobsPage = () => {
   };
 
   const retryJob = async (job: Job) => {
-    setMessage(null);
     setError(null);
     try {
       const newJob = await api.post<Job>(`/jobs/${job.id}/retry`, {});
-      setMessage('Retry queued. Refresh to track progress.');
+      addToast('success', `Retry queued for ${job.type} job`);
       await loadJobs();
       setSelectedJob(newJob);
       setLogs([]);
     } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Retry failed. Check server logs for details.');
-      }
+      const message = err instanceof Error ? err.message : 'Retry failed';
+      addToast('error', message);
+      setError(message);
     }
   };
 
   const selectedJobStatus = selectedJob
     ? jobs.find((job) => job.id === selectedJob.id)?.status || selectedJob.status
     : undefined;
+
+  const selectedJobData = selectedJob
+    ? jobs.find((job) => job.id === selectedJob.id) || selectedJob
+    : null;
 
   useEffect(() => {
     if (!selectedJob) {
@@ -106,11 +108,6 @@ const JobsPage = () => {
   return (
     <div>
       <PageHeader title="Jobs" subtitle="Observe long-running tasks and inspect logs" />
-      {message && (
-        <div className="card" style={{ borderLeft: '4px solid #16a34a', color: '#166534', marginBottom: '1rem' }}>
-          {message}
-        </div>
-      )}
       {error && (
         <div className="card" style={{ borderLeft: '4px solid #dc2626', color: '#991b1b', marginBottom: '1rem' }}>
           {error}
@@ -164,7 +161,61 @@ const JobsPage = () => {
           ]}
           rowClassName={(job) => (selectedJob?.id === job.id ? 'is-selected' : undefined)}
         />
-        <LogViewer lines={logs} />
+        <div>
+          {/* Error Message Panel */}
+          {selectedJobData?.status === 'failed' && selectedJobData.error_message && (
+            <div
+              className="card"
+              style={{
+                borderLeft: '4px solid #dc2626',
+                background: '#fef2f2',
+                marginBottom: '1rem',
+                padding: '1rem'
+              }}
+            >
+              <div style={{ fontWeight: 600, color: '#991b1b', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
+                Error: {selectedJobData.type} failed
+              </div>
+              <div style={{ color: '#b91c1c', fontSize: '0.85rem', fontFamily: 'monospace' }}>
+                {selectedJobData.error_message}
+              </div>
+            </div>
+          )}
+
+          {/* Job Details */}
+          {selectedJobData && (
+            <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
+              <div style={{ fontSize: '0.85rem', color: '#475569' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.5rem 1rem' }}>
+                  <span style={{ fontWeight: 600 }}>Job ID:</span>
+                  <span style={{ fontFamily: 'monospace' }}>{selectedJobData.id}</span>
+                  <span style={{ fontWeight: 600 }}>Type:</span>
+                  <span>{selectedJobData.type}</span>
+                  <span style={{ fontWeight: 600 }}>Target:</span>
+                  <span>{selectedJobData.target_db || '—'}</span>
+                  <span style={{ fontWeight: 600 }}>Status:</span>
+                  <StatusBadge status={selectedJobData.status} />
+                  {selectedJobData.params && Object.keys(selectedJobData.params).length > 0 && (
+                    <>
+                      <span style={{ fontWeight: 600 }}>Parameters:</span>
+                      <details style={{ fontSize: '0.8rem' }}>
+                        <summary style={{ cursor: 'pointer', color: '#2563eb' }}>View params</summary>
+                        <pre style={{ margin: '0.5rem 0 0', whiteSpace: 'pre-wrap', background: '#f1f5f9', padding: '0.5rem', borderRadius: '0.25rem' }}>
+                          {JSON.stringify(selectedJobData.params, null, 2)}
+                        </pre>
+                      </details>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <LogViewer
+            lines={logs}
+            title={selectedJobData ? `Logs: ${selectedJobData.id.slice(0, 8)}` : 'Logs'}
+          />
+        </div>
       </div>
     </div>
   );

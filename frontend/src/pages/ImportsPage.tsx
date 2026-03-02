@@ -7,6 +7,7 @@ import { GEOFABRIK_DATA, GeofabrikEntry } from '../data/geofabrik';
 import { DEFAULT_STYLE } from '../data/defaultStyle';
 import Combobox from '../components/Combobox';
 import { Job, ManagedDatabase } from '../types/api';
+import { useToast } from '../components/ToastProvider';
 
 const DEFAULT_FORM = {
   target_db: '',
@@ -25,10 +26,10 @@ const DEFAULT_FORM = {
 
 const ImportsPage = () => {
   const api = useApi();
+  const { addToast } = useToast();
   const [form, setForm] = useState(DEFAULT_FORM);
   const [databases, setDatabases] = useState<ManagedDatabase[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [message, setMessage] = useState<string | null>(null);
   const [styleLocked, setStyleLocked] = useState(false);
 
   const geofabrikGroups = useMemo(() => {
@@ -137,35 +138,40 @@ const ImportsPage = () => {
     event.preventDefault();
     const trimmedSource = form.pbf_source.trim();
     if (!trimmedSource) {
-      setMessage('Provide a local path or a remote .pbf URL.');
+      addToast('warning', 'Provide a local path or a remote .pbf URL.');
       return;
     }
-    const isRemote = /^https?:\/\//i.test(trimmedSource);
-    await api.post('/imports', {
-      target_db: form.target_db,
-      mode: form.mode,
-      pbf_path: isRemote ? undefined : trimmedSource,
-      pbf_url: isRemote ? trimmedSource : undefined,
-      slim: form.slim,
-      hstore: form.hstore,
-      cache_mb: form.cache_mb,
-      number_processes: form.number_processes,
-      style_definition: form.style_definition || undefined,
-      include_coastlines: form.include_coastlines,
-      coastline_source: form.include_coastlines ? form.coastline_source : undefined,
-      coastline_water_path:
-        form.include_coastlines && form.coastline_source === 'water'
-          ? form.coastline_water_path
-          : undefined
-    });
-    setMessage('Import queued successfully.');
-    setForm((current) => ({
-      ...current,
-      pbf_source: '',
-      preset_pbf: '',
-      style_definition: current.mode === 'create' ? current.style_definition || DEFAULT_STYLE : current.style_definition
-    }));
-    await refresh();
+    try {
+      const isRemote = /^https?:\/\//i.test(trimmedSource);
+      await api.post('/imports', {
+        target_db: form.target_db,
+        mode: form.mode,
+        pbf_path: isRemote ? undefined : trimmedSource,
+        pbf_url: isRemote ? trimmedSource : undefined,
+        slim: form.slim,
+        hstore: form.hstore,
+        cache_mb: form.cache_mb,
+        number_processes: form.number_processes,
+        style_definition: form.style_definition || undefined,
+        include_coastlines: form.include_coastlines,
+        coastline_source: form.include_coastlines ? form.coastline_source : undefined,
+        coastline_water_path:
+          form.include_coastlines && form.coastline_source === 'water'
+            ? form.coastline_water_path
+            : undefined
+      });
+      addToast('success', `Import job queued for ${form.target_db}`);
+      setForm((current) => ({
+        ...current,
+        pbf_source: '',
+        preset_pbf: '',
+        style_definition: current.mode === 'create' ? current.style_definition || DEFAULT_STYLE : current.style_definition
+      }));
+      await refresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Import failed';
+      addToast('error', message);
+    }
   };
 
   return (
@@ -339,7 +345,6 @@ const ImportsPage = () => {
         <button type="submit" className="btn" style={{ marginTop: '1rem' }}>
           Start import
         </button>
-        {message && <div style={{ marginTop: '0.75rem', color: '#2563eb' }}>{message}</div>}
       </form>
 
       <DataTable

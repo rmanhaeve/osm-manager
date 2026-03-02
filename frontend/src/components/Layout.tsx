@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import React from 'react';
+import ActivityBar from './ActivityBar';
 
 const menuItems = [
   { path: '/databases', label: 'Databases' },
@@ -26,7 +27,10 @@ const Layout = ({ children }: LayoutProps) => {
           ))}
         </nav>
       </aside>
-      <main className="content">{children}</main>
+      <main className="content">
+        <ActivityBar />
+        {children}
+      </main>
     </div>
   );
 };

@@ -5,17 +5,15 @@ import DataTable from '../components/DataTable';
 import PageHeader from '../components/PageHeader';
 import StatsCard from '../components/StatsCard';
 import MapPreview, { MapPreviewHandle } from '../components/MapPreview';
+import { useToast } from '../components/ToastProvider';
 
 const DatabasesPage = () => {
   const api = useApi();
+  const { addToast } = useToast();
   const [databases, setDatabases] = useState<ManagedDatabase[]>([]);
   const [stats, setStats] = useState<Record<string, DatabaseStats>>({});
   const [form, setForm] = useState({ name: '', display_name: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'idle' | 'success' | 'error' | 'loading'; text: string }>({
-    type: 'idle',
-    text: ''
-  });
   const [selectedDb, setSelectedDb] = useState<string | null>(null);
   const mapRef = useRef<MapPreviewHandle | null>(null);
 
@@ -37,18 +35,17 @@ const DatabasesPage = () => {
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setIsSubmitting(true);
-    setFeedback({ type: 'idle', text: '' });
     try {
       await api.post<ManagedDatabase>('/databases', {
         name: form.name,
         display_name: form.display_name || undefined
       });
+      addToast('success', `Database "${form.name}" created.`);
       setForm({ name: '', display_name: '' });
-      setFeedback({ type: 'success', text: `Database "${form.name}" created.` });
       await loadDatabases();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to create database.';
-      setFeedback({ type: 'error', text: message });
+      addToast('error', message);
     } finally {
       setIsSubmitting(false);
     }
@@ -58,15 +55,14 @@ const DatabasesPage = () => {
     if (!window.confirm(`Delete database "${name}"? This cannot be undone.`)) {
       return;
     }
-    setFeedback({ type: 'idle', text: '' });
     try {
       await api.del(`/databases/${name}`);
-      setFeedback({ type: 'success', text: `Database "${name}" deleted.` });
+      addToast('success', `Database "${name}" deleted.`);
       await loadDatabases();
       setSelectedDb((current) => (current === name ? null : current));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to delete database.';
-      setFeedback({ type: 'error', text: message });
+      addToast('error', message);
     }
   };
 
@@ -94,11 +90,10 @@ const DatabasesPage = () => {
         [record.max_lat, record.max_lon]
       ]);
       setSelectedDb(dbName);
-      setFeedback({ type: 'idle', text: '' });
       return;
     }
 
-    setFeedback({ type: 'loading', text: `Fetching map bounds for "${dbName}"...` });
+    addToast('info', `Fetching map bounds for "${dbName}"...`);
     try {
       const bounds = await api.get<DatabaseBounds>(`/databases/${dbName}/bounds`);
       mapRef.current?.showBounds([
@@ -106,10 +101,9 @@ const DatabasesPage = () => {
         [bounds.max_lat, bounds.max_lon]
       ]);
       setSelectedDb(dbName);
-      setFeedback({ type: 'idle', text: '' });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to fetch bounds for this database.';
-      setFeedback({ type: 'error', text: message });
+      addToast('error', message);
     }
   };
 
@@ -148,21 +142,6 @@ const DatabasesPage = () => {
           <button type="submit" className="btn" disabled={isSubmitting}>
             Create
           </button>
-          {feedback.type !== 'idle' && (
-            <div
-              style={{
-                marginTop: '0.75rem',
-                color:
-                  feedback.type === 'error'
-                    ? '#dc2626'
-                    : feedback.type === 'loading'
-                    ? '#2563eb'
-                    : '#16a34a'
-              }}
-            >
-              {feedback.text}
-            </div>
-      )}
         </form>
         <div className="grid two">
           <StatsCard label="Total databases" value={databases.length} />
