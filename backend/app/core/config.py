@@ -50,7 +50,6 @@ class CelerySettings(BaseSettings):
     broker_url: str = Field("redis://localhost:6379/0")
     result_backend: str = Field("redis://localhost:6379/1")
     task_default_queue: str = Field("default")
-    beat_sync_seconds: int = Field(300)
 
 
 class SecuritySettings(BaseSettings):

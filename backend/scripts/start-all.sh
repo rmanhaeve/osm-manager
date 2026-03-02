@@ -46,23 +46,18 @@ echo "[entrypoint] starting all services..."
 celery -A app.workers.celery_app worker --loglevel=info --concurrency=2 &
 WORKER_PID=$!
 
-# Start Celery beat in background
-celery -A app.workers.celery_app beat --loglevel=info &
-BEAT_PID=$!
-
-# Give workers time to start
+# Give worker time to start
 sleep 2
 
 # Start API server in foreground
 echo "[entrypoint] starting API server..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+uvicorn app.main:app --host 0.0.0.0 --port 8000 &
 API_PID=$!
 
 # Handle shutdown gracefully
 shutdown() {
     echo "[entrypoint] shutting down services..."
     kill $API_PID 2>/dev/null || true
-    kill $BEAT_PID 2>/dev/null || true
     kill $WORKER_PID 2>/dev/null || true
     wait
     exit 0

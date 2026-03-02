@@ -365,38 +365,3 @@ def run_replication_update(self, job_id: str) -> None:
         if managed:
             managed.last_replication_job_id = job.id
         job_service.finish_job(job_id, JobStatus.success)
-
-
-@shared_task(name="jobs.vacuum_analyze")
-def vacuum_analyze(job_id: str) -> None:
-    with get_sync_session() as session:
-        job_service = SyncJobService(session)
-        job = job_service.start_job(job_id)
-        job_service.append_log(job_id, "Vacuum analyze placeholder executed.")
-        job_service.finish_job(job_id, JobStatus.success)
-
-
-@shared_task(name="jobs.compute_metrics")
-def compute_metrics(job_id: str) -> None:
-    with get_sync_session() as session:
-        job_service = SyncJobService(session)
-        job = job_service.start_job(job_id)
-        job_service.append_log(job_id, "Metrics computation placeholder executed.")
-        job_service.finish_job(job_id, JobStatus.success)
-
-
-@shared_task(name="jobs.schedule_replication_updates")
-def schedule_replication_updates() -> None:
-    with get_sync_session() as session:
-        job_service = SyncJobService(session)
-        configs = session.query(ReplicationConfig).all()
-        for config in configs:
-            job = job_service.create_job(
-                JobType.replication_job,
-                config.target_db,
-                {
-                    "dry_run": config.dry_run,
-                    "catch_up": config.catch_up,
-                },
-            )
-            run_replication_update.delay(str(job.id))

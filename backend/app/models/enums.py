@@ -14,5 +14,3 @@ class JobStatus(str, enum.Enum):
 class JobType(str, enum.Enum):
     import_job = "import"
     replication_job = "replication"
-    vacuum = "vacuum_analyze"
-    metrics = "compute_metrics"

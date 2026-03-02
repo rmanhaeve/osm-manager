@@ -4,7 +4,7 @@ OSM Manager is a production-ready starter kit for orchestrating **osm2pgsql** im
 
 ## Architecture
 
-- **Backend (`backend/app`)** – Single container running FastAPI REST API + Celery worker + Celery beat. Manages databases, imports, replication, jobs, and metrics. Uses SQLAlchemy 2.0 + psycopg3, pydantic settings, SlowAPI rate limiting, structured logging, and Prometheus metrics.
+- **Backend (`backend/app`)** – Single container running FastAPI REST API + Celery worker. Manages databases, imports, replication, jobs, and metrics. Uses SQLAlchemy 2.0 + psycopg3, pydantic settings, SlowAPI rate limiting, structured logging, and Prometheus metrics.
 - **PostgreSQL + PostGIS** – Primary `osm_manager` metadata catalog plus dynamically managed target databases. Backend auto-provisions roles on startup.
 - **Redis** – Celery broker/result backend. Can be swapped for Redis Sentinel or RabbitMQ in production.
 - **React + Vite frontend (`frontend`)** – Management GUI with Databases, Imports, Replication, Jobs, and Settings pages, plus activity monitoring and log viewer.
@@ -129,7 +129,7 @@ Import jobs use the safe wrapper (`app/utils/osm2pgsql.py`) which builds command
      -d '{"target_db": "osm_test"}'
    ```
 
-3. Celery beat (`jobs.schedule_replication_updates`) automatically queues replication jobs using the configured interval. Each run updates `replication_configs.last_sequence_number`, persists `state.txt`, and logs output.
+3. Replication jobs are triggered manually from the UI or API. Each run updates `replication_configs.last_sequence_number`, persists `state.txt`, and logs output.
 
 ## TrueNAS Scale Deployment
 
@@ -185,7 +185,6 @@ npm run dev
 ```bash
 cd backend
 celery -A app.workers.celery_app worker --loglevel=info
-celery -A app.workers.celery_app beat --loglevel=info
 ```
 
 ## Testing

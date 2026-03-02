@@ -13,12 +13,6 @@ celery_app.conf.update(
     task_track_started=True,
     worker_max_tasks_per_child=50,
     worker_prefetch_multiplier=1,
-    beat_schedule={
-        "schedule-replication-updates": {
-            "task": "jobs.schedule_replication_updates",
-            "schedule": settings.celery.beat_sync_seconds,
-        },
-    },
 )
 
 celery_app.autodiscover_tasks(["app.workers"])
