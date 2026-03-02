@@ -42,7 +42,7 @@ class DatabaseManagerService:
 
     @staticmethod
     def _derive_dsn(base_name: str) -> str:
-        url = make_url(str(settings.database.primary_dsn))
+        url = make_url(str(settings.database.admin_dsn))
         return url.set(database=base_name).render_as_string(hide_password=False)
 
     @staticmethod
@@ -101,13 +101,15 @@ class DatabaseManagerService:
         full_name = self._full_db_name(logical_name)
         async with await AsyncConnection.connect(settings.database.admin_psycopg_dsn) as conn:
             async with conn.cursor() as cur:
-                await cur.execute(f'SET search_path = "public";')
                 await cur.execute(f'SELECT 1 FROM pg_database WHERE datname = %s', (full_name,))
                 row = await cur.fetchone()
                 if not row:
                     raise RuntimeError("Physical database missing.")
+        
+        admin_url = make_url(settings.database.admin_psycopg_dsn).set(database=full_name)
+        target_conninfo = admin_url.render_as_string(hide_password=False)
         enable_query = f'CREATE EXTENSION IF NOT EXISTS "{extension}"'
-        async with await AsyncConnection.connect(self._psycopg_conninfo(self._derive_dsn(full_name))) as conn:
+        async with await AsyncConnection.connect(target_conninfo) as conn:
             async with conn.cursor() as cur:
                 await cur.execute(enable_query)
                 await conn.commit()
@@ -116,9 +118,9 @@ class DatabaseManagerService:
 
     async def _fetch_extension_version(self, db_name: str, extension: str) -> str | None:
         query = "SELECT extversion FROM pg_extension WHERE extname = %s"
-        async with await AsyncConnection.connect(
-            self._psycopg_conninfo(self._derive_dsn(db_name))
-        ) as conn:
+        admin_url = make_url(settings.database.admin_psycopg_dsn).set(database=db_name)
+        target_conninfo = admin_url.render_as_string(hide_password=False)
+        async with await AsyncConnection.connect(target_conninfo) as conn:
             async with conn.cursor() as cur:
                 await cur.execute(query, (extension,))
                 row = await cur.fetchone()
@@ -135,7 +137,6 @@ class DatabaseManagerService:
             await conn.set_autocommit(True)
             async with conn.cursor() as cur:
                 await cur.execute(f'CREATE DATABASE "{full_name}" TEMPLATE template0')
-                await cur.execute(f'GRANT ALL PRIVILEGES ON DATABASE "{full_name}" TO app_user')
 
         admin_url = make_url(settings.database.admin_psycopg_dsn).set(database=full_name)
         target_conninfo = admin_url.render_as_string(hide_password=False)
@@ -144,8 +145,6 @@ class DatabaseManagerService:
             async with db_conn.cursor() as cur:
                 await cur.execute('CREATE EXTENSION IF NOT EXISTS postgis')
                 await cur.execute('CREATE EXTENSION IF NOT EXISTS hstore')
-                await cur.execute('GRANT USAGE ON SCHEMA public TO app_user')
-                await cur.execute('GRANT CREATE ON SCHEMA public TO app_user')
 
     async def _drop_database(self, full_name: str) -> None:
         admin_dsn = settings.database.admin_psycopg_dsn

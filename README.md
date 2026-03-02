@@ -6,7 +6,7 @@ OSM Manager is a production-ready starter kit for orchestrating **osm2pgsql** im
 
 - **FastAPI backend (`backend/app`)** – REST API for managing target databases, launching imports, replication runs, job history, and metrics. Uses SQLAlchemy 2.0 + psycopg3, pydantic settings, SlowAPI rate limiting, structured logging, and Prometheus metrics.
 - **Celery workers (`backend/app/workers`)** – Long running jobs for osm2pgsql imports, replication updates, vacuum/housekeeping, and metrics aggregation. Logs stream to disk (`/data/logs/<job_id>`) and into the `job_logs` table.
-- **PostgreSQL + PostGIS (`docker-compose` PostGIS image)** – Primary `osm_manager` metadata catalog plus dynamically managed target databases. Init script provisions least-privilege roles (`app_user`, `app_readonly`, `super_user`).
+- **PostgreSQL + PostGIS (`docker-compose` PostGIS image)** – Primary `osm_manager` metadata catalog plus dynamically managed target databases. Init script provisions least-privilege roles (`app_user`, `app_readonly`) and elevated role (`super_user`) for DDL operations.
 - **Redis** – Celery broker/result backend. Can be swapped for Redis Sentinel or RabbitMQ in production.
 - **React + Vite frontend (`frontend`)** – Minimal management GUI with Databases, Imports, Replication, Jobs, and Settings pages, plus a Leaflet preview backed by a stub `/tiles` API.
 - **Observability** – Structlog JSON logs, request IDs, Prometheus metrics endpoint (`/metrics`), and rate-limited mutating routes.
@@ -41,13 +41,16 @@ OSM Manager is a production-ready starter kit for orchestrating **osm2pgsql** im
 cp .env.example .env
 docker compose build
 docker compose up -d postgres redis
-docker compose run --rm api alembic upgrade head
+# Wait for postgres to be ready
+sleep 5
 docker compose up -d
 
 # verify services
 curl http://localhost:8000/health
 open http://localhost:5173
 ```
+
+The backend automatically creates required database roles and applies migrations on startup.
 
 Default credentials come from `.env.example`; change `OSM_MANAGER__SECURITY__ADMIN_API_TOKEN` before exposing beyond localhost. Managed data directories live under `./data` (bind-mounted to `/data` in containers):
 
@@ -201,19 +204,21 @@ Environment variables use nested Pydantic settings, e.g.
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `OSM_MANAGER__DATABASE__PRIMARY_DSN` | Metadata DB DSN (SQLAlchemy format) | `postgresql+psycopg://app_user:app_password@postgres:5432/osm_manager` |
-| `OSM_MANAGER__DATABASE__ADMIN_DSN` | Elevated runner used for DDL (safe allowlist) | `postgresql+psycopg://super_user:super_password@postgres:5432/postgres` |
+| `OSM_MANAGER__DATABASE__ADMIN_DSN` | Elevated DSN for DDL and database management operations | `postgresql+psycopg://super_user:super_password@postgres:5432/postgres` |
 | `OSM_MANAGER__FILESYSTEM__ROOT` | Volume root (`/data`) | `/data` |
-| `OSM_MANAGER__SECURITY__ADMIN_API_TOKEN` | Simple RBAC placeholder | `change-me` |
+| `OSM_MANAGER__SECURITY__ADMIN_API_TOKEN` | API token for mutating operations (must match `VITE_ADMIN_TOKEN` in frontend) | `change-me` |
+| `VITE_ADMIN_TOKEN` | Frontend environment variable for API authentication | `change-me` |
 | `OSM_MANAGER__WORKER__MAX_CONCURRENT_IMPORTS` | Safety rail to limit imports | `2` |
 
 See `backend/app/core/config.py` for the full catalog and defaults.
 
 ## Safety Rails & Security
 
-- Web process performs DDL through `super_user` only for sanctioned operations (create/drop DBs, enabling extensions). Routine queries use `app_user`.
+- Web process performs DDL through `super_user` for all database management operations (create/drop DBs, enabling extensions, stats queries). Routine application queries use `app_user`.
 - Database names are validated against `[a-z0-9_]+` and prefixed with `osm_` to avoid collisions.
 - osm2pgsql flags are whitelisted; extra args must match approved prefixes.
 - Rate limiting powered by SlowAPI protects mutating routes (default `60/minute`).
+- API authentication uses `X-API-Key` header. **Important**: Set `VITE_ADMIN_TOKEN` in frontend to match `OSM_MANAGER__SECURITY__ADMIN_API_TOKEN` in backend.
 - Structured logging with request IDs supports distributed tracing; adjust log level via `OSM_MANAGER__LOG_LEVEL`.
 
 ## Next Steps

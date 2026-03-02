@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "[entrypoint] waiting for database..."
-python - <<'PY'
+python3 - <<'PY'
 import asyncio
 from app.core.config import settings
 from psycopg import AsyncConnection
@@ -27,6 +27,14 @@ async def wait():
     raise SystemExit(message)
 
 asyncio.run(wait())
+PY
+
+echo "[entrypoint] ensuring database roles..."
+python3 - <<'PY'
+import asyncio
+from app.core.database_setup import ensure_database_roles
+
+asyncio.run(ensure_database_roles())
 PY
 
 echo "[entrypoint] applying database migrations..."

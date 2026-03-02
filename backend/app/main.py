@@ -15,6 +15,7 @@ from slowapi.util import get_remote_address
 
 from app.api.routes import databases, health, imports, jobs, metrics, replication
 from app.core.config import settings
+from app.core.database_setup import ensure_database_roles
 from app.core.logging import setup_logging
 from app.observability.metrics import api_metrics
 
@@ -23,6 +24,13 @@ setup_logging()
 limiter = Limiter(key_func=get_remote_address, default_limits=[settings.security.rate_limit])
 
 app = FastAPI(title="OSM Manager API", version="0.1.0")
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    await ensure_database_roles()
+
+
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 
